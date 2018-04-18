@@ -11,8 +11,8 @@ from maml import MAML
 FLAGS = flags.FLAGS
 
 flags.DEFINE_bool('train', True, 'train or test')
-flags.DEFINE_integer('meta_iteration', 60000, 'iteraion for meta-train')
-flags.DEFINE_integer('train_iteraion', 5, 'iteraion for train update num')
+flags.DEFINE_integer('meta_iteration', 6000, 'iteraion for meta-train')
+flags.DEFINE_integer('train_iteration', 5, 'iteraion for train update num')
 flags.DEFINE_integer('meta_batchsz', 4, 'tasks num')
 flags.DEFINE_integer('train_batchsz', 1, 'batchsz for one tasks, as we need test on same-domain train, here must be 1')
 flags.DEFINE_float('meta_lr', 1e-3, 'meta-train learning rate, beta namely')
@@ -37,25 +37,25 @@ def train(model, saver, sess):
 
 
 	for iteration in range(FLAGS.meta_iteration):
-		input_tensors = [model.metatrain_op]
+		input_tensors = [model.meta_op]
 
 		# add summary and print op
 		if iteration % 100 == 0:
-			input_tensors.extend([model.summ_op, model.total_loss1, model.total_losses2[FLAGS.num_updates - 1]])
-			input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates - 1]])
+			input_tensors.extend([model.summ_op, model.support_loss, model.query_losses[FLAGS.train_iteration - 1]])
+			input_tensors.extend([model.support_acc, model.query_accs[FLAGS.train_iteration - 1]])
 
 		# run op
 		result = sess.run(input_tensors, {})
 
 		# summary
-		if iteration % 50 == 0:
+		if iteration % 100 == 0:
 			prelosses.append(result[-2])
 			train_writer.add_summary(result[1], iteration)
 			postlosses.append(result[-1])
 
 		# print
 		if iteration % 100 == 0:
-			print(np.mean(prelosses) + ', ' + np.mean(postlosses))
+			print('loss pre&post:', np.mean(prelosses) , np.mean(postlosses))
 			prelosses, postlosses = [], []
 
 		# checkpoint
@@ -63,7 +63,7 @@ def train(model, saver, sess):
 			saver.save(sess, os.path.join('logs', 'mini.mdl'))
 
 		# evaluation
-		if iteration % 200 == 0:
+		if iteration % 200 == 220:
 			result = sess.run([ model.metaval_total_accuracy1,
 				                model.metaval_total_accuracies2[FLAGS.num_updates - 1],
 				                model.summ_op],
@@ -126,12 +126,12 @@ def main():
 	if FLAGS.train:
 		model.build(input_train, prefix='metatrain_')
 	model.build(input_test, prefix='metaval_')
+	model.summ_op = tf.summary.merge_all()
 
 
 	config = tf.ConfigProto()
 	config.gpu_options.allow_growth = True
-	sess = tf.Session(config=config)
-	model.summ_op = tf.summary.merge_all()
+	sess = tf.InteractiveSession(config=config)
 	saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)
 
 	if not FLAGS.train:

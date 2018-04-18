@@ -79,7 +79,7 @@ class MAML:
 				query_losses.append(query_loss)
 
 				for j in range(K - 1):
-					loss = tf.nn.softmax_cross_entropy_with_logits(logits=self.forward(support_x, fast_weights),
+					loss = tf.nn.softmax_cross_entropy_with_logits(logits=self.forward(support_x, fast_weights, reuse=True),
 					                                               labels=support_y)
 					# compute gradients
 					grads = tf.gradients(loss, list(fast_weights.values()))
@@ -209,8 +209,8 @@ class MAML:
 		"""
 		# conv
 		x = tf.nn.conv2d(x, weight, [1, 1, 1, 1], 'SAME') + bias
-		# batch norm
-		x = tf.layers.batch_normalization(x, activation_fn=tf.nn.relu, reuse=reuse, scope=scope)
+		# batch norm, activation_fn=tf.nn.relu,
+		x = tf.contrib.layers.batch_norm(x, activation_fn=tf.nn.relu, reuse=reuse, scope=scope)
 		# pooling
 		x = tf.nn.max_pool(x, [1, 2, 2, 1], [1, 2, 2, 1], 'VALID')
 		return x
@@ -234,8 +234,8 @@ class MAML:
 		hidden3 = self.conv_block(hidden2,  weights['conv3'], weights['b3'], reuse, scope + '2')
 		hidden4 = self.conv_block(hidden3,  weights['conv4'], weights['b4'], reuse, scope + '3')
 
-		# get_shape is static shape
-		print('flatten:', hidden4.get_shape())
+		# get_shape is static shape, (5, 5, 5, 32)
+		# print('flatten:', hidden4.get_shape())
 		# flatten layer
 		hidden4 = tf.reshape(hidden4, [-1, np.prod([int(dim) for dim in hidden4.get_shape()[1:]])])
 
