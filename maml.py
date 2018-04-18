@@ -153,17 +153,18 @@ class MAML:
 		else: # test
 
 			# average loss
-			self.support_loss = support_loss = tf.reduce_sum(support_loss_tasks) / N
+			self.test_support_loss = support_loss = tf.reduce_sum(support_loss_tasks) / N
 			# [avgloss_t1, avgloss_t2, ..., avgloss_K]
-			self.query_losses = query_losses = [tf.reduce_sum(query_losses_tasks[j]) / N
+			self.test_query_losses = query_losses = [tf.reduce_sum(query_losses_tasks[j]) / N
 			                                        for j in range(K)]
 			# average accuracy
-			self.support_acc = support_acc = tf.reduce_sum(support_acc_tasks) / N
+			self.test_support_acc = support_acc = tf.reduce_sum(support_acc_tasks) / N
 			# average accuracies
-			self.query_accs = query_accs = [tf.reduce_sum(query_accs_tasks[j]) / N
+			self.test_query_accs = query_accs = [tf.reduce_sum(query_accs_tasks[j]) / N
 			                                        for j in range(K)]
 
 		## Summaries
+		# NOTICE: every time build model, support_loss will be added to the summary, but it's different.
 		tf.summary.scalar(prefix + 'support loss', support_loss)
 		tf.summary.scalar(prefix + 'support acc', support_acc)
 		for j in range(K):

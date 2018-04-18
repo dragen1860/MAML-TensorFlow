@@ -32,43 +32,43 @@ def train(model, saver, sess):
 	:return:
 	"""
 
-	train_writer = tf.summary.FileWriter(os.path.join('logs', 'mini.mdl'), sess.graph)
+	tb = tf.summary.FileWriter(os.path.join('logs', 'mini'), sess.graph)
 	prelosses, postlosses = [], []
 
 
 	for iteration in range(FLAGS.meta_iteration):
-		input_tensors = [model.meta_op]
+		ops = [model.meta_op]
 
 		# add summary and print op
-		if iteration % 100 == 0:
-			input_tensors.extend([model.summ_op, model.support_loss, model.query_losses[FLAGS.train_iteration - 1]])
-			input_tensors.extend([model.support_acc, model.query_accs[FLAGS.train_iteration - 1]])
+		if iteration % 200 == 0:
+			ops.extend([model.summ_op, model.support_loss, model.query_losses[-1],
+			            model.support_acc, model.query_accs[-1]])
 
 		# run op
-		result = sess.run(input_tensors, {})
+		result = sess.run(ops)
 
 		# summary
-		if iteration % 100 == 0:
+		if iteration % 200 == 0:
+			# support_acc
 			prelosses.append(result[-2])
-			train_writer.add_summary(result[1], iteration)
+			# summ_op
+			tb.add_summary(result[1], iteration)
+			# query_accs
 			postlosses.append(result[-1])
 
-		# print
-		if iteration % 100 == 0:
-			print('loss pre&post:', np.mean(prelosses) , np.mean(postlosses))
+			print('pre & post loss:', iteration, np.mean(prelosses) , np.mean(postlosses))
 			prelosses, postlosses = [], []
 
 		# checkpoint
-		if iteration % 100 == 0:
-			saver.save(sess, os.path.join('logs', 'mini.mdl'))
+		if iteration % 5000 == 0:
+			saver.save(sess, os.path.join('ckpt', 'mini.mdl'))
+			print('saved ckpt.')
 
 		# evaluation
-		if iteration % 200 == 220:
-			result = sess.run([ model.metaval_total_accuracy1,
-				                model.metaval_total_accuracies2[FLAGS.num_updates - 1],
-				                model.summ_op],
-			                  {})
-			print('Validation results: ' + str(result[0]) + ', ' + str(result[1]))
+		if iteration % 2000 == 0:
+			result = sess.run([ model.test_support_acc,
+				                model.test_query_accs[-1]])
+			print('Validation results: ' ,result[0], result[1])
 
 
 
