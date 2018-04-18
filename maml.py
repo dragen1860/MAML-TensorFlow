@@ -20,25 +20,28 @@ class MAML:
 
 		self.img_size = int(np.sqrt(self.dim_input / 3))
 
-	def construct_model(self, input, prefix='metatrain_'):
+	def build(self, input, prefix='metatrain_'):
 		"""
 
 		:param input:
 		:param prefix:
 		:return:
 		"""
-
-		self.support_x  = input['inputa']
-		self.support_y  = input['labela']
-		self.query_x    = input['inputb']
-		self.query_y    = input['labelb']
+		# support_x : [4, 1*5, 84*84*3]
+		# query_x   : [4, 15*5, 84*84*3]
+		# support_y : [4, 5, 5]
+		# query_y   : [4, 15*5, 5]
+		self.support_x  = input['support_x']
+		self.support_y  = input['support_y']
+		self.query_x    = input['query_x']
+		self.query_y    = input['query_y']
 
 		# train iteration
 		K = max(self.test_num_updates, FLAGS.train_iteration)
 		# num of tasks
 		N = tf.to_float(FLAGS.meta_batchsz)
 
-		with tf.variable_scope('model', reuse=None) as scope:
+		with tf.variable_scope('MAML', reuse=None) as scope:
 			# since we need to construct train model and test model, this function will be used for twice
 			if 'weights' in dir(self):
 				scope.reuse_variables()
@@ -107,10 +110,10 @@ class MAML:
 			# to initialize the batch norm variables, might want to combine this, and not run idx 0 twice.
 			unused = meta_task((self.support_x[0], self.query_x[0], self.support_y[0], self.query_y[0]), False)
 
-			# inputa: [4, 5, 84*84*3]
-			# inputb: [4, 15*5, 84*84*3]
-			# labela: [4, 5]
-			# labelb: [4, 15*5]
+			# support_x : [4, 1*5, 84*84*3]
+			# query_x   : [4, 15*5, 84*84*3]
+			# support_y : [4, 5, 5]
+			# query_y   : [4, 15*5, 5]
 			# return: [support_pred, support_loss, support_acc, query_preds, query_losses, query_accs]
 			out_dtype = [tf.float32, tf.float32, tf.float32, [tf.float32] * K, [tf.float32] * K, [tf.float32] * K]
 			support_pred_tasks, support_loss_tasks, support_acc_tasks, \
@@ -118,7 +121,6 @@ class MAML:
 					tf.map_fn(meta_task, elems=(self.support_x, self.query_x, self.support_y, self.query_y),
 			                   dtype=out_dtype,
 			                   parallel_iterations=FLAGS.meta_batchsz)
-
 
 
 		## Performance & Optimization
@@ -149,6 +151,7 @@ class MAML:
 			self.meta_op = optimizer.apply_gradients(gvs)
 
 		else: # test
+
 			# average loss
 			self.support_loss = support_loss = tf.reduce_sum(support_loss_tasks) / N
 			# [avgloss_t1, avgloss_t2, ..., avgloss_K]
