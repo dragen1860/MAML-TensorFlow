@@ -22,6 +22,9 @@ flags.DEFINE_integer('kshot', 1, 'k-shot')
 flags.DEFINE_integer('kquery', 15, 'k-query, number of images to query per category')
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
+
 
 def train(model, saver, sess):
 	"""
@@ -67,7 +70,7 @@ def train(model, saver, sess):
 			print('saved ckpt.')
 
 		# evaluation
-		if iteration % 2000 == 0:
+		if iteration % 1000 == 0:
 			result = sess.run([ model.test_support_acc,
 				                model.test_query_accs[-1]])
 			print('Validation results: ' ,result[0], result[1])
