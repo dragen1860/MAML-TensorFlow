@@ -6,7 +6,7 @@ FLAGS = flags.FLAGS
 
 
 class MAML:
-	def __init__(self, dim_input, dim_output, test_num_updates=5):
+	def __init__(self, dim_input, dim_output, test_num_updates):
 		"""
 
 		:param dim_input:
@@ -16,9 +16,11 @@ class MAML:
 		self.dim_input = dim_input
 		self.dim_output = dim_output
 		self.test_num_updates = test_num_updates
+
 		self.meta_lr = tf.placeholder_with_default(FLAGS.meta_lr, ())
 
-		self.img_size = int(np.sqrt(self.dim_input / 3))
+		self.imgsz = int(np.sqrt(self.dim_input / 3))
+		print('imgsz:', self.imgsz)
 
 	def build(self, input, prefix='metatrain_'):
 		"""
@@ -37,7 +39,11 @@ class MAML:
 		self.query_y    = input['query_y']
 
 		# train iteration
+		# according to the paper, we train use 5 steps while test use 10 steps.
+		# which means, when building meta-(train/test) graph, we need repeat network by 5 times,
+		# however, when build test graph, we need repeat 10 times.
 		K = max(self.test_num_updates, FLAGS.train_iteration)
+		print('building ', prefix, 'update steps:', K)
 		# num of tasks
 		N = tf.to_float(FLAGS.meta_batchsz)
 
@@ -46,19 +52,23 @@ class MAML:
 			if 'weights' in dir(self):
 				scope.reuse_variables()
 				weights = self.weights
+				print(prefix, 'reuse weights.')
 			else:
 				# build the weights
 				self.weights = weights = self.conv_weights()
-
-			# at this time, we have weigths and self.weights
-			# outputbs[i] and lossesb[i] is the output and loss after i+1 gradient updates
+				print(prefix, 'build weights.')
 
 			# the following list save all tasks' op.
 			support_pred_tasks, support_loss_tasks, support_acc_tasks = [], [], []
 			query_preds_tasks, query_losses_tasks, query_accs_tasks = [[]] * K, [[]] * K, [[]] * K
 
 			def meta_task(input, reuse=True):
-				""" Perform gradient descent for one task in the meta-batch. """
+				"""
+
+				:param input:
+				:param reuse:
+				:return:
+				"""
 				support_x, query_x, support_y, query_y = input
 				# to record the op in t update step.
 				query_preds, query_losses, query_accs = [], [], []
@@ -68,17 +78,23 @@ class MAML:
 				support_loss = tf.nn.softmax_cross_entropy_with_logits(logits=support_pred, labels=support_y)
 				# compute gradients
 				grads = tf.gradients(support_loss, list(weights.values()))
+				# grad and variable dict
 				gvs = dict(zip(weights.keys(), grads))
 
 				# theta_pi = theta - alpha * grads
 				fast_weights = dict(zip(weights.keys(), [weights[key] - FLAGS.train_lr * gvs[key] for key in weights.keys()]))
-				# use theta_pi to forward
+				# use theta_pi to forward meta-test
 				query_pred = self.forward(query_x, fast_weights, reuse=True)
+				# meta-test loss
 				query_loss = tf.nn.softmax_cross_entropy_with_logits(logits=query_pred, labels=query_y)
+				# record T0 pred and loss for meta-test
 				query_preds.append(query_pred)
 				query_losses.append(query_loss)
 
-				for j in range(K - 1):
+				# continue to build T1-TK steps graph
+				for _ in range(1, K):
+					# T_k loss on meta-train
+					# we need meta-train loss to fine-tune the task and meta-test loss to update theta
 					loss = tf.nn.softmax_cross_entropy_with_logits(logits=self.forward(support_x, fast_weights, reuse=True),
 					                                               labels=support_y)
 					# compute gradients
@@ -90,15 +106,18 @@ class MAML:
 					                         for key in fast_weights.keys()]))
 					# forward on theta_pi
 					query_pred = self.forward(query_x, fast_weights, reuse=True)
+					# we need accumulate all meta-test losses to update theta
 					query_loss = tf.nn.softmax_cross_entropy_with_logits(logits=query_pred, labels=query_y)
 					query_preds.append(query_pred)
 					query_losses.append(query_loss)
 
-
+				# actually, this is the T0 step's accuracy on support set
 				support_acc = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(support_pred), 1),
 				                                             tf.argmax(support_y, 1))
-				for j in range(K):
-					query_accs.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(query_preds[j]), 1),
+				# compute every steps' accuracy on query set, we may notice the query_acc increase due to we have
+				# backpropagated by support set
+				for i in range(K):
+					query_accs.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(query_preds[i]), 1),
 						                                            tf.argmax(query_y, 1)))
 				# we just use the first step support op: support_pred & support_loss, but igonre these support op
 				# at step 1:K-1.
@@ -116,18 +135,17 @@ class MAML:
 			# query_y   : [4, 15*5, 5]
 			# return: [support_pred, support_loss, support_acc, query_preds, query_losses, query_accs]
 			out_dtype = [tf.float32, tf.float32, tf.float32, [tf.float32] * K, [tf.float32] * K, [tf.float32] * K]
+			result = tf.map_fn(meta_task, elems=(self.support_x, self.query_x, self.support_y, self.query_y),
+			                   dtype=out_dtype, parallel_iterations=FLAGS.meta_batchsz)
 			support_pred_tasks, support_loss_tasks, support_acc_tasks, \
-				query_preds_tasks, query_losses_tasks, query_accs_tasks = \
-					tf.map_fn(meta_task, elems=(self.support_x, self.query_x, self.support_y, self.query_y),
-			                   dtype=out_dtype,
-			                   parallel_iterations=FLAGS.meta_batchsz)
+				query_preds_tasks, query_losses_tasks, query_accs_tasks = result
 
 
 		## Performance & Optimization
 		if 'train' in prefix:
 
 			# no need to average
-			self.support_pred_tasks, self.query_preds_tasks = support_pred_tasks, query_preds_tasks
+			# self.support_pred_tasks, self.query_preds_tasks = support_pred_tasks, query_preds_tasks
 
 			# average loss
 			self.support_loss = support_loss = tf.reduce_sum(support_loss_tasks) / N
@@ -139,12 +157,13 @@ class MAML:
 			# average accuracies
 			self.query_accs = query_accs = [tf.reduce_sum(query_accs_tasks[j]) / N
 			                                        for j in range(K)]
-			# inner-train op
-			self.train_op = tf.train.AdamOptimizer(self.meta_lr).minimize(support_loss)
+			# if needing extra pretrain, we just use the op, it's very simple classification network.
+			self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(support_loss)
+
 			# meta-train optim
 			optimizer = tf.train.AdamOptimizer(self.meta_lr)
-			# meta-train gradients
-			self.gvs = gvs = optimizer.compute_gradients(self.query_losses[K - 1])
+			# meta-train gradients, query_losses[-1] is the accumulated loss across over tasks.
+			gvs = optimizer.compute_gradients(self.query_losses[-1])
 			# meta-train grads clipping
 			gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
 			# update theta
@@ -163,7 +182,7 @@ class MAML:
 			self.test_query_accs = query_accs = [tf.reduce_sum(query_accs_tasks[j]) / N
 			                                        for j in range(K)]
 
-		## Summaries
+		# Summaries
 		# NOTICE: every time build model, support_loss will be added to the summary, but it's different.
 		tf.summary.scalar(prefix + 'support loss', support_loss)
 		tf.summary.scalar(prefix + 'support acc', support_acc)
@@ -228,7 +247,7 @@ class MAML:
 		:return:
 		"""
 		# [b, 84, 84, 3]
-		x = tf.reshape(x, [-1, self.img_size, self.img_size, 3])
+		x = tf.reshape(x, [-1, self.imgsz, self.imgsz, 3])
 
 		hidden1 = self.conv_block(x,        weights['conv1'], weights['b1'], reuse, scope + '0')
 		hidden2 = self.conv_block(hidden1,  weights['conv2'], weights['b2'], reuse, scope + '1')

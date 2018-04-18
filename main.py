@@ -1,4 +1,4 @@
-import csv, os
+import os
 import numpy as np
 import pickle
 import random
@@ -11,17 +11,17 @@ from maml import MAML
 FLAGS = flags.FLAGS
 
 flags.DEFINE_bool('train', True, 'train or test')
-flags.DEFINE_integer('meta_iteration', 6000, 'iteraion for meta-train')
+flags.DEFINE_integer('meta_iteration', 600000, 'iteraion for meta-train')
 flags.DEFINE_integer('train_iteration', 5, 'iteraion for train update num')
-flags.DEFINE_integer('meta_batchsz', 4, 'tasks num')
-flags.DEFINE_integer('train_batchsz', 1, 'batchsz for one tasks, as we need test on same-domain train, here must be 1')
+flags.DEFINE_integer('meta_batchsz', 10, 'tasks num')
+flags.DEFINE_integer('train_batchsz', 1, 'should be 1. batchsz for one tasks, as we need test on same-domain train, here must be 1')
 flags.DEFINE_float('meta_lr', 1e-3, 'meta-train learning rate, beta namely')
 flags.DEFINE_float('train_lr', 1e-2, 'train learing rate, alpha namely')
 flags.DEFINE_integer('nway', 5, 'n-way')
 flags.DEFINE_integer('kshot', 1, 'k-shot')
-flags.DEFINE_integer('kquery', 1, 'k-query, number of images to query per category')
+flags.DEFINE_integer('kquery', 15, 'k-query, number of images to query per category')
 
-
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 def train(model, saver, sess):
 	"""
@@ -36,7 +36,9 @@ def train(model, saver, sess):
 	prelosses, postlosses = [], []
 
 
+	# train for meta_iteartion epoches
 	for iteration in range(FLAGS.meta_iteration):
+		# this is the main op
 		ops = [model.meta_op]
 
 		# add summary and print op
@@ -44,7 +46,7 @@ def train(model, saver, sess):
 			ops.extend([model.summ_op, model.support_loss, model.query_losses[-1],
 			            model.support_acc, model.query_accs[-1]])
 
-		# run op
+		# run all ops
 		result = sess.run(ops)
 
 		# summary
@@ -138,7 +140,7 @@ def main():
 		# change to original meta batch size when loading model.
 		FLAGS.meta_batchsz = orig_meta_batchsz
 
-
+	# initialize
 	tf.global_variables_initializer().run()
 	tf.train.start_queue_runners()
 
