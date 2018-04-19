@@ -23,7 +23,7 @@ flags.DEFINE_integer('kshot', 1, 'k-shot')
 flags.DEFINE_integer('kquery', 15, 'k-query, number of images to query per category')
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # see issue #152
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
@@ -35,7 +35,7 @@ def train(model, saver, sess):
 	:param sess:
 	:return:
 	"""
-
+	# write graph to tensorboard
 	tb = tf.summary.FileWriter(os.path.join('logs', 'mini'), sess.graph)
 	prelosses, postlosses = [], []
 
@@ -101,7 +101,7 @@ def test(model, sess):
 	stds = np.std(test_accs, 0)
 	ci95 = 1.96 * stds / np.sqrt(600)
 
-	print('[support_t0, query_t0 - \t\t\ttK] ')
+	print('[support_t0, query_t0 - \t\t\tK] ')
 	print('mean:', means)
 	print('stds:', stds)
 	print('ci95:', ci95)
@@ -157,9 +157,14 @@ def main():
 	# construct metatrain_ and metaval_
 	if FLAGS.train:
 		# if not train, we only build test graph.
-		model.build(input_train, prefix='metatrain_')
-	model.build(input_test, prefix='metaval_')
+		model.build(input_train, prefix='metatrain')
+	model.build(input_test, prefix='metaval')
 	model.summ_op = tf.summary.merge_all()
+
+	print('All variables in current graph, except for optimizer related vars:')
+	all_vars = filter(lambda x: 'meta_optim' not in x.name, tf.global_variables())
+	for p in all_vars:
+		print(p)
 
 	config = tf.ConfigProto()
 	config.gpu_options.allow_growth = True
@@ -174,10 +179,11 @@ def main():
 	tf.global_variables_initializer().run()
 	tf.train.start_queue_runners()
 
-	# alway load ckpt both train and test.
-	model_file = tf.train.latest_checkpoint('ckpt')
-	print("Restoring model weights from ", model_file)
-	saver.restore(sess, model_file)
+	if os.path.exists(os.path.join('ckpt', 'checkpoint')):
+		# alway load ckpt both train and test.
+		model_file = tf.train.latest_checkpoint('ckpt')
+		print("Restoring model weights from ", model_file)
+		saver.restore(sess, model_file)
 
 
 	if FLAGS.train:

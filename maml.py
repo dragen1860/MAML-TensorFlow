@@ -22,7 +22,7 @@ class MAML:
 		self.imgsz = int(np.sqrt(self.dim_input / 3))
 		print('imgsz:', self.imgsz)
 
-	def build(self, input, prefix='metatrain_'):
+	def build(self, input, prefix='metatrain'):
 		"""
 
 		:param input:
@@ -47,22 +47,23 @@ class MAML:
 		# num of tasks
 		N = tf.to_float(FLAGS.meta_batchsz)
 
-		with tf.variable_scope('MAML', reuse=None) as scope:
+		with tf.variable_scope('MAML', reuse=tf.AUTO_REUSE):
 			# since we need to construct train model and test model, this function will be used for twice
-			if 'weights' in dir(self):
-				scope.reuse_variables()
-				weights = self.weights
-				print(prefix, 'reuse weights.')
-			else:
-				# build the weights
-				self.weights = weights = self.conv_weights()
-				print(prefix, 'build weights.')
+			# if 'weights' in dir(self):
+			# 	scope.reuse_variables()
+			# 	weights = self.weights
+			# 	print(prefix, 'reuse weights.')
+			# else:
+			# 	# build the weights
+			# 	self.weights = weights = self.conv_weights()
+			# 	print(prefix, 'build weights.')
+			self.weights = weights = self.conv_weights()
 
 			# the following list save all tasks' op.
 			support_pred_tasks, support_loss_tasks, support_acc_tasks = [], [], []
 			query_preds_tasks, query_losses_tasks, query_accs_tasks = [[]] * K, [[]] * K, [[]] * K
 
-			def meta_task(input, reuse=True):
+			def meta_task(input, reuse=tf.AUTO_REUSE):
 				"""
 
 				:param input:
@@ -84,17 +85,24 @@ class MAML:
 				# metaval   : reuse weights
 				# metaval   : reuse=False
 				# metaval   : reuse=True
-				support_pred = self.forward(support_x, weights, reuse=reuse)  # only reuse on the first iter
+				# ==================================
+				# REUSE       True        False
+				# Not exist   Error       Create one
+				# Existed     reuse       Error
+				# ==================================
+				# That's, to create variable, you must turn off reuse
+				support_pred = self.forward(support_x, weights)  # only reuse on the first iter
 				support_loss = tf.nn.softmax_cross_entropy_with_logits(logits=support_pred, labels=support_y)
 				# compute gradients
 				grads = tf.gradients(support_loss, list(weights.values()))
 				# grad and variable dict
 				gvs = dict(zip(weights.keys(), grads))
 
+				#map(lambda gv: [tf.clip_by_value(gv[0], -10., 10.), gv[1]], grads_vars_G)
 				# theta_pi = theta - alpha * grads
 				fast_weights = dict(zip(weights.keys(), [weights[key] - FLAGS.train_lr * gvs[key] for key in weights.keys()]))
 				# use theta_pi to forward meta-test
-				query_pred = self.forward(query_x, fast_weights, reuse=True)
+				query_pred = self.forward(query_x, fast_weights)
 				# meta-test loss
 				query_loss = tf.nn.softmax_cross_entropy_with_logits(logits=query_pred, labels=query_y)
 				# record T0 pred and loss for meta-test
@@ -105,7 +113,7 @@ class MAML:
 				for _ in range(1, K):
 					# T_k loss on meta-train
 					# we need meta-train loss to fine-tune the task and meta-test loss to update theta
-					loss = tf.nn.softmax_cross_entropy_with_logits(logits=self.forward(support_x, fast_weights, reuse=True),
+					loss = tf.nn.softmax_cross_entropy_with_logits(logits=self.forward(support_x, fast_weights),
 					                                               labels=support_y)
 					# compute gradients
 					grads = tf.gradients(loss, list(fast_weights.values()))
@@ -115,7 +123,7 @@ class MAML:
 					fast_weights = dict(zip(fast_weights.keys(), [fast_weights[key] - FLAGS.train_lr * gvs[key]
 					                         for key in fast_weights.keys()]))
 					# forward on theta_pi
-					query_pred = self.forward(query_x, fast_weights, reuse=True)
+					query_pred = self.forward(query_x, fast_weights)
 					# we need accumulate all meta-test losses to update theta
 					query_loss = tf.nn.softmax_cross_entropy_with_logits(logits=query_pred, labels=query_y)
 					query_preds.append(query_pred)
@@ -136,22 +144,20 @@ class MAML:
 
 				return result
 
-			# to initialize the batch norm variables, might want to combine this, and not run idx 0 twice.
-			unused = meta_task((self.support_x[0], self.query_x[0], self.support_y[0], self.query_y[0]), False)
-
 			# support_x : [4, 1*5, 84*84*3]
 			# query_x   : [4, 15*5, 84*84*3]
 			# support_y : [4, 5, 5]
 			# query_y   : [4, 15*5, 5]
 			# return: [support_pred, support_loss, support_acc, query_preds, query_losses, query_accs]
 			out_dtype = [tf.float32, tf.float32, tf.float32, [tf.float32] * K, [tf.float32] * K, [tf.float32] * K]
-			result = tf.map_fn(meta_task, elems=(self.support_x, self.query_x, self.support_y, self.query_y), # reuse=True
+			result = tf.map_fn(meta_task, elems=(self.support_x, self.query_x, self.support_y, self.query_y),
 			                   dtype=out_dtype, parallel_iterations=FLAGS.meta_batchsz)
 			support_pred_tasks, support_loss_tasks, support_acc_tasks, \
 				query_preds_tasks, query_losses_tasks, query_accs_tasks = result
 
 
 		## Performance & Optimization
+		# the following code is not in Variable_scope now.
 		if 'train' in prefix:
 
 			# no need to average
@@ -168,10 +174,10 @@ class MAML:
 			self.query_accs = query_accs = [tf.reduce_sum(query_accs_tasks[j]) / N
 			                                        for j in range(K)]
 			# if needing extra pretrain, we just use the op, it's very simple classification network.
-			self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(support_loss)
+			# self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr, name='pretrain_optim').minimize(support_loss)
 
 			# meta-train optim
-			optimizer = tf.train.AdamOptimizer(self.meta_lr)
+			optimizer = tf.train.AdamOptimizer(self.meta_lr, name='meta_optim')
 			# meta-train gradients, query_losses[-1] is the accumulated loss across over tasks.
 			gvs = optimizer.compute_gradients(self.query_losses[-1])
 			# meta-train grads clipping
@@ -210,24 +216,24 @@ class MAML:
 		fc_initializer = tf.contrib.layers.xavier_initializer()
 		k = 3
 
-		weights['conv1']    = tf.get_variable('conv1', [k, k, 3, 32],  initializer=conv_initializer)
-		weights['b1']       = tf.Variable(tf.zeros([32]))
-		weights['conv2']    = tf.get_variable('conv2', [k, k, 32, 32], initializer=conv_initializer)
-		weights['b2']       = tf.Variable(tf.zeros([32]))
-		weights['conv3']    = tf.get_variable('conv3', [k, k, 32, 32], initializer=conv_initializer)
-		weights['b3']       = tf.Variable(tf.zeros([32]))
-		weights['conv4']    = tf.get_variable('conv4', [k, k, 32, 32], initializer=conv_initializer)
-		weights['b4']       = tf.Variable(tf.zeros([32]))
+		weights['conv1']    = tf.get_variable('conv1w', [k, k, 3, 32],  initializer=conv_initializer)
+		weights['b1']       = tf.get_variable('conv1b', initializer=tf.zeros([32]))
+		weights['conv2']    = tf.get_variable('conv2w', [k, k, 32, 32], initializer=conv_initializer)
+		weights['b2']       = tf.get_variable('conv2b', initializer=tf.zeros([32]))
+		weights['conv3']    = tf.get_variable('conv3w', [k, k, 32, 32], initializer=conv_initializer)
+		weights['b3']       = tf.get_variable('conv3b', initializer=tf.zeros([32]))
+		weights['conv4']    = tf.get_variable('conv4w', [k, k, 32, 32], initializer=conv_initializer)
+		weights['b4']       = tf.get_variable('conv4b', initializer=tf.zeros([32]))
 
 
 		# assumes max pooling
-		weights['w5']       = tf.get_variable('w5', [32 * 5 * 5, FLAGS.nway], initializer=fc_initializer)
-		weights['b5']       = tf.Variable(tf.zeros([self.dim_output]), name='b5')
+		weights['w5']       = tf.get_variable('fc1w', [32 * 5 * 5, FLAGS.nway], initializer=fc_initializer)
+		weights['b5']       = tf.get_variable('fc1b', initializer=tf.zeros([self.dim_output]))
 
 
 		return weights
 
-	def conv_block(self, x, weight, bias, reuse, scope):
+	def conv_block(self, x, weight, bias, scope):
 		"""
 		build a block with conv2d->batch_norm->pooling
 		:param x:
@@ -238,15 +244,17 @@ class MAML:
 		:return:
 		"""
 		# conv
-		x = tf.nn.conv2d(x, weight, [1, 1, 1, 1], 'SAME') + bias
+		x = tf.nn.conv2d(x, weight, [1, 1, 1, 1], 'SAME', name=scope + '_conv2d') + bias
 		# batch norm, activation_fn=tf.nn.relu,
-		x = tf.contrib.layers.batch_norm(x, activation_fn=tf.nn.relu, reuse=reuse, scope=scope)
+		# NOTICE: must have tf.layers.batch_normalization
+		# x = tf.contrib.layers.batch_norm(x, activation_fn=tf.nn.relu)
+		x = tf.layers.batch_normalization(x, training=FLAGS.train, name=scope + '_bn')
 		# pooling
-		x = tf.nn.max_pool(x, [1, 2, 2, 1], [1, 2, 2, 1], 'VALID')
+		x = tf.nn.max_pool(x, [1, 2, 2, 1], [1, 2, 2, 1], 'VALID', name=scope + '_pool')
 		return x
 
 
-	def forward(self, x, weights, reuse=False, scope='conv'):
+	def forward(self, x, weights):
 		"""
 
 
@@ -257,18 +265,18 @@ class MAML:
 		:return:
 		"""
 		# [b, 84, 84, 3]
-		x = tf.reshape(x, [-1, self.imgsz, self.imgsz, 3])
+		x = tf.reshape(x, [-1, self.imgsz, self.imgsz, 3], name='reshape1')
 
-		hidden1 = self.conv_block(x,        weights['conv1'], weights['b1'], reuse, scope + '0')
-		hidden2 = self.conv_block(hidden1,  weights['conv2'], weights['b2'], reuse, scope + '1')
-		hidden3 = self.conv_block(hidden2,  weights['conv3'], weights['b3'], reuse, scope + '2')
-		hidden4 = self.conv_block(hidden3,  weights['conv4'], weights['b4'], reuse, scope + '3')
+		hidden1 = self.conv_block(x,        weights['conv1'], weights['b1'], 'conv0')
+		hidden2 = self.conv_block(hidden1,  weights['conv2'], weights['b2'], 'conv1')
+		hidden3 = self.conv_block(hidden2,  weights['conv3'], weights['b3'], 'conv2')
+		hidden4 = self.conv_block(hidden3,  weights['conv4'], weights['b4'], 'conv3')
 
 		# get_shape is static shape, (5, 5, 5, 32)
 		# print('flatten:', hidden4.get_shape())
 		# flatten layer
-		hidden4 = tf.reshape(hidden4, [-1, np.prod([int(dim) for dim in hidden4.get_shape()[1:]])])
+		hidden4 = tf.reshape(hidden4, [-1, np.prod([int(dim) for dim in hidden4.get_shape()[1:]])], name='reshape2')
 
-		output = tf.matmul(hidden4, weights['w5']) + weights['b5']
+		output = tf.add(tf.matmul(hidden4, weights['w5']), weights['b5'], name='fc')
 
 		return output

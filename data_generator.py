@@ -29,11 +29,11 @@ class DataGenerator:
 		self.img_size = config.get('img_size', (84, 84))
 		self.dim_input = np.prod(self.img_size) * 3 # 21168
 		self.dim_output = self.num_classes
-		metatrain_folder = config.get('metatrain_folder', '../maml/data/miniImagenet/train')
+		metatrain_folder = config.get('metatrain_folder', '/home/liangqu/ncrs-hdd1/meta/maml/data/miniImagenet/train')
 		if True:
-			metaval_folder = config.get('metaval_folder', '../maml/data/miniImagenet/test')
+			metaval_folder = config.get('metaval_folder', '/home/liangqu/ncrs-hdd1/meta/maml/data/miniImagenet/test')
 		else:
-			metaval_folder = config.get('metaval_folder', '../maml/data/miniImagenet/val')
+			metaval_folder = config.get('metaval_folder', '/home/liangqu/ncrs-hdd1/meta/maml/data/miniImagenet/val')
 
 		metatrain_folders = [os.path.join(metatrain_folder, label) \
 		                     for label in os.listdir(metatrain_folder) \
@@ -56,7 +56,7 @@ class DataGenerator:
 		if train:
 			folders = self.metatrain_character_folders
 			# number of tasks, not number of meta-iterations. (divide by metabatch size to measure)
-			num_total_batches = 5000
+			num_total_batches = 1000
 		else:
 			folders = self.metaval_character_folders
 			num_total_batches = 600
