@@ -84,10 +84,14 @@ def test(model, sess):
 
 	# repeat test accuracy for 600 times
 	test_accs = []
-	for _ in range(600):
-		feed_dict = {model.meta_lr: 0.0}
-		ops = [model.test_support_acc].extend(model.test_query_accs)
-		result = sess.run(ops, feed_dict)
+	feed_dict = {model.meta_lr: 0.0}
+	for i in range(600):
+		if i % 100 == 1:
+			print(i)
+		# extend return None!!!
+		ops = [model.test_support_acc]
+		ops.extend(model.test_query_accs)
+		result = sess.run(ops, feed_dict=feed_dict)
 		test_accs.append(result)
 
 	# [600, K+1]

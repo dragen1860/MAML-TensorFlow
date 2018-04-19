@@ -74,6 +74,16 @@ class MAML:
 				query_preds, query_losses, query_accs = [], [], []
 
 				# forward: support_x -> 4conv -> fc -> [5]
+				# NOTICE: reuse=False on unused_op to create batch_norm tenors and then reuse these batch_norm tensors
+				# on formal meta_op
+				# However, we build two graphs totally: metatrain & metaeval, and these 2 graphs does NOT share batch_norm
+				# tensors actually
+				# metatrain : create weights
+				# metatrain : reuse=False
+				# metatrain : reuse=True
+				# metaval   : reuse weights
+				# metaval   : reuse=False
+				# metaval   : reuse=True
 				support_pred = self.forward(support_x, weights, reuse=reuse)  # only reuse on the first iter
 				support_loss = tf.nn.softmax_cross_entropy_with_logits(logits=support_pred, labels=support_y)
 				# compute gradients
@@ -135,7 +145,7 @@ class MAML:
 			# query_y   : [4, 15*5, 5]
 			# return: [support_pred, support_loss, support_acc, query_preds, query_losses, query_accs]
 			out_dtype = [tf.float32, tf.float32, tf.float32, [tf.float32] * K, [tf.float32] * K, [tf.float32] * K]
-			result = tf.map_fn(meta_task, elems=(self.support_x, self.query_x, self.support_y, self.query_y),
+			result = tf.map_fn(meta_task, elems=(self.support_x, self.query_x, self.support_y, self.query_y), # reuse=True
 			                   dtype=out_dtype, parallel_iterations=FLAGS.meta_batchsz)
 			support_pred_tasks, support_loss_tasks, support_acc_tasks, \
 				query_preds_tasks, query_losses_tasks, query_accs_tasks = result
