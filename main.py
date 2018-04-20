@@ -3,31 +3,16 @@ import numpy as np
 import pickle
 import random
 import tensorflow as tf
-from tensorflow import flags
 
 from data_generator import DataGenerator
 from maml import MAML
-
-FLAGS = flags.FLAGS
-
-flags.DEFINE_bool('train', True, 'train or test')
-flags.DEFINE_integer('meta_iteration', 600000, 'iteraion for meta-train')
-flags.DEFINE_integer('train_iteration', 5, 'iteraion for train update num')
-flags.DEFINE_integer('meta_batchsz', 4, 'tasks num')
-flags.DEFINE_integer('train_batchsz', 1,
-                     'should be 1. batchsz for one tasks, as we need test on same-domain train, here must be 1')
-flags.DEFINE_float('meta_lr', 1e-3, 'meta-train learning rate, beta namely')
-flags.DEFINE_float('train_lr', 1e-2, 'train learing rate, alpha namely')
-flags.DEFINE_integer('nway', 5, 'n-way')
-flags.DEFINE_integer('kshot', 1, 'k-shot')
-flags.DEFINE_integer('kquery', 15, 'k-query, number of images to query per category')
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
-def train(model, saver, sess):
+def train2(model, saver, sess):
 	"""
 
 	:param model:
@@ -40,7 +25,7 @@ def train(model, saver, sess):
 	prelosses, postlosses = [], []
 
 	# train for meta_iteartion epoches
-	for iteration in range(FLAGS.meta_iteration):
+	for iteration in range(600000):
 		# this is the main op
 		ops = [model.meta_op]
 
@@ -72,9 +57,17 @@ def train(model, saver, sess):
 
 		# evaluation
 		if iteration % 1000 == 0:
-			result = sess.run([model.test_query_accs[0],
-			                   model.test_query_accs[-1]])
-			print('Validation results: ', result[0], result[1])
+			# DO NOT write as a = b = [], in that case a=b
+			# DO NOT use train variable as we have train func already.
+			acc1s, acc2s = [], []
+			# sample 20 times to get more accurate statistics.
+			for _ in range(20):
+				acc1, acc2 = sess.run([model.test_query_accs[0],
+				                   model.test_query_accs[-1]])
+				acc1s.append(acc1)
+				acc2s.append(acc2)
+
+			print('Validation results: ', np.mean(acc1s), np.mean(acc2s))
 
 
 def test(model, sess):
@@ -109,24 +102,22 @@ def test(model, sess):
 
 
 def main():
-	if FLAGS.train:
-		test_num_updates = 1  # eval on at least one update during training
-	else:
-		test_num_updates = 10  # test before 10 steps of fine-tuning
-		orig_meta_batchsz = FLAGS.meta_batchsz
-		# always use meta batch size of 1 when testing.
-		# which means, we only build one task's graph
-		FLAGS.meta_batchsz = 1
+	train = True
+	kshot = 1
+	kquery = 15
+	nway = 5
+	meta_batchsz = 4
+	K = 5
+
 
 	# kshot + kquery images per category, nway categories, meta_batchsz tasks.
-	db = DataGenerator(FLAGS.kshot + FLAGS.kquery, FLAGS.meta_batchsz)
+	db = DataGenerator( kshot +  kquery,  meta_batchsz, nway)
 
-	if FLAGS.train:  # only construct training model if needed
-		random.seed(5)
+	if  train:  # only construct training model if needed
 		# get the tensor
 		# image_tensor: [4, 80, 84*84*3]
 		# label_tensor: [4, 80, 5]
-		image_tensor, label_tensor = db.make_data_tensor()
+		image_tensor, label_tensor = db.make_data_tensor(train=True)
 
 		# NOTICE: the image order in 80 images should like this now:
 		# [label2, label1, label3, label0, label4, and then repeat by 15 times, namely one task]
@@ -134,46 +125,41 @@ def main():
 		# query_x   : [4, 15*5, 84*84*3]
 		# support_y : [4, 5, 5]
 		# query_y   : [4, 15*5, 5]
-		support_x = tf.slice(image_tensor, [0, 0, 0], [-1, FLAGS.nway * FLAGS.kshot, -1])
-		query_x = tf.slice(image_tensor, [0, FLAGS.nway * FLAGS.kshot, 0], [-1, -1, -1])
-		support_y = tf.slice(label_tensor, [0, 0, 0], [-1, FLAGS.nway * FLAGS.kshot, -1])
-		query_y = tf.slice(label_tensor, [0, FLAGS.nway * FLAGS.kshot, 0], [-1, -1, -1])
-		input_train = {'support_x': support_x, 'support_y': support_y, 'query_x': query_x, 'query_y': query_y}
+		support_x = tf.slice(image_tensor, [0, 0, 0], [-1,  nway *  kshot, -1], name='support_x')
+		query_x = tf.slice(image_tensor, [0,  nway *  kshot, 0], [-1, -1, -1], name='query_x')
+		support_y = tf.slice(label_tensor, [0, 0, 0], [-1,  nway *  kshot, -1], name='support_y')
+		query_y = tf.slice(label_tensor, [0,  nway *  kshot, 0], [-1, -1, -1], name='query_y')
 
 	# construct test tensors.
-	random.seed(6)
 	image_tensor, label_tensor = db.make_data_tensor(train=False)
-	support_x = tf.slice(image_tensor, [0, 0, 0], [-1, FLAGS.nway * FLAGS.kshot, -1])
-	query_x = tf.slice(image_tensor, [0, FLAGS.nway * FLAGS.kshot, 0], [-1, -1, -1])
-	support_y = tf.slice(label_tensor, [0, 0, 0], [-1, FLAGS.nway * FLAGS.kshot, -1])
-	query_y = tf.slice(label_tensor, [0, FLAGS.nway * FLAGS.kshot, 0], [-1, -1, -1])
-	input_test = {'support_x': support_x, 'support_y': support_y, 'query_x': query_x, 'query_y': query_y}
+	support_x_test = tf.slice(image_tensor, [0, 0, 0], [-1,  nway *  kshot, -1], name='support_x_test')
+	query_x_test = tf.slice(image_tensor, [0,  nway *  kshot, 0], [-1, -1, -1],  name='query_x_test')
+	support_y_test = tf.slice(label_tensor, [0, 0, 0], [-1,  nway *  kshot, -1],  name='support_y_test')
+	query_y_test = tf.slice(label_tensor, [0,  nway *  kshot, 0], [-1, -1, -1],  name='query_y_test')
 
-	# dim_input: 84*84*3
-	# dim_output: 5
+
 	# 1. construct MAML model
-	model = MAML(db.dim_input, db.dim_output, test_num_updates=test_num_updates)
+	model = MAML(84, 3, 5)
 
 	# construct metatrain_ and metaval_
-	if FLAGS.train:
-		# if not train, we only build test graph.
-		model.build(input_train, prefix='metatrain')
-	model.build(input_test, prefix='metaval')
+	if  train:
+		model.build(support_x, support_y, query_x, query_y, K, meta_batchsz, mode='train')
+		model.build(support_x_test, support_y_test, query_x_test, query_y_test, K, meta_batchsz, mode='eval')
+	else:
+		model.build(support_x_test, support_y_test, query_x_test, query_y_test, K, meta_batchsz, mode='test')
 	model.summ_op = tf.summary.merge_all()
 
-	print('All variables in current graph, except for optimizer related vars:')
-	all_vars = filter(lambda x: 'meta_optim' not in x.name, tf.global_variables())
+	all_vars = filter(lambda x: 'meta_optim' not in x.name, tf.trainable_variables())
 	for p in all_vars:
 		print(p)
+
 
 	config = tf.ConfigProto()
 	config.gpu_options.allow_growth = True
 	sess = tf.InteractiveSession(config=config)
-	saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)
-
-	if not FLAGS.train:
-		# change to original meta batch size when loading model.
-		FLAGS.meta_batchsz = orig_meta_batchsz
+	# tf.global_variables() to save moving_mean and moving variance of batch norm
+	# tf.trainable_variables()  NOT include moving_mean and moving_variance.
+	saver = tf.train.Saver(tf.global_variables(), max_to_keep=10)
 
 	# initialize, under interative session
 	tf.global_variables_initializer().run()
@@ -186,8 +172,8 @@ def main():
 		saver.restore(sess, model_file)
 
 
-	if FLAGS.train:
-		train(model, saver, sess)
+	if train:
+		train2(model, saver, sess)
 	else:
 		test(model, sess)
 

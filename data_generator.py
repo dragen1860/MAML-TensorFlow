@@ -3,10 +3,8 @@ import os
 import random
 import tensorflow as tf
 
-from tensorflow import flags
 from utils import get_images
 
-FLAGS = flags.FLAGS
 
 
 class DataGenerator:
@@ -15,7 +13,7 @@ class DataGenerator:
 	A "class" is considered a class of omniglot digits or a particular sinusoid function.
 	"""
 
-	def __init__(self, num_samples_per_class, batch_size, config={}):
+	def __init__(self, num_samples_per_class, batch_size, nway, config={}):
 		"""
 		Args:
 			num_samples_per_class: num samples to generate per class in one batch
@@ -25,7 +23,7 @@ class DataGenerator:
 		self.num_samples_per_class = num_samples_per_class
 		self.num_classes = 1  # by default 1 (only relevant for classification problems)
 
-		self.num_classes = config.get('num_classes', FLAGS.nway)
+		self.num_classes = config.get('num_classes', nway)
 		self.img_size = config.get('img_size', (84, 84))
 		self.dim_input = np.prod(self.img_size) * 3 # 21168
 		self.dim_output = self.num_classes
