@@ -35,7 +35,7 @@ class MAML:
 		# create or reuse network variable, not including batch_norm variable, therefore we need extra reuse mechnism
 		# to reuse batch_norm variables.
 		self.weights = self.conv_weights()
-		# the line determines whether in train/test for batch norm
+		# TODO: meta-test is sort of test stage.
 		training = True if mode is 'train' else False
 
 		def meta_task(input):

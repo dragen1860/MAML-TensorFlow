@@ -102,7 +102,7 @@ def test(model, sess):
 
 
 def main():
-	train = True
+	training = True
 	kshot = 1
 	kquery = 15
 	nway = 5
@@ -113,7 +113,7 @@ def main():
 	# kshot + kquery images per category, nway categories, meta_batchsz tasks.
 	db = DataGenerator( kshot +  kquery,  meta_batchsz, nway)
 
-	if  train:  # only construct training model if needed
+	if  training:  # only construct training model if needed
 		# get the tensor
 		# image_tensor: [4, 80, 84*84*3]
 		# label_tensor: [4, 80, 5]
@@ -142,7 +142,7 @@ def main():
 	model = MAML(84, 3, 5)
 
 	# construct metatrain_ and metaval_
-	if  train:
+	if  training:
 		model.build(support_x, support_y, query_x, query_y, K, meta_batchsz, mode='train')
 		model.build(support_x_test, support_y_test, query_x_test, query_y_test, K, meta_batchsz, mode='eval')
 	else:
@@ -172,7 +172,7 @@ def main():
 		saver.restore(sess, model_file)
 
 
-	if train:
+	if training:
 		train2(model, saver, sess)
 	else:
 		test(model, sess)
