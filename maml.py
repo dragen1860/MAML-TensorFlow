@@ -175,17 +175,21 @@ class MAML:
 			# if needing extra pretrain, we just use the op, it's very simple classification network.
 			# self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr, name='pretrain_optim').minimize(support_loss)
 
-			# meta-train optim
-			optimizer = tf.train.AdamOptimizer(self.meta_lr, name='meta_optim')
 			# add batch_norm ops before meta_op
 			update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 			with tf.control_dependencies(update_ops):
-				# meta-train gradients, query_losses[-1] is the accumulated loss across over tasks.
-				gvs = optimizer.compute_gradients(self.query_losses[-1])
-				# meta-train grads clipping
-				gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
-				# update theta
-				self.meta_op = optimizer.apply_gradients(gvs)
+				# TODO: the update_ops must be put before tf.train.AdamOptimizer,
+				# otherwise it throws Not in same Frame Error.
+				meta_loss = tf.identity(self.query_losses[-1])
+
+			# meta-train optim
+			optimizer = tf.train.AdamOptimizer(self.meta_lr, name='meta_optim')
+			# meta-train gradients, query_losses[-1] is the accumulated loss across over tasks.
+			gvs = optimizer.compute_gradients(meta_loss)
+			# meta-train grads clipping
+			gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
+			# update theta
+			self.meta_op = optimizer.apply_gradients(gvs)
 
 		else: # test
 
@@ -250,9 +254,11 @@ class MAML:
 		# batch norm, activation_fn=tf.nn.relu,
 		# NOTICE: must have tf.layers.batch_normalization
 		# x = tf.contrib.layers.batch_norm(x, activation_fn=tf.nn.relu)
-		with tf.variable_scope('MAML', reuse=None):
+		with tf.variable_scope('MAML'):
 			# train is set to True ALWAYS, please refer to https://github.com/cbfinn/maml/issues/9
 			x = tf.layers.batch_normalization(x, training=FLAGS.train, name=scope + '_bn', reuse=tf.AUTO_REUSE)
+		# relu
+		x = tf.nn.relu(x, name=scope + '_relu')
 		# pooling
 		x = tf.nn.max_pool(x, [1, 2, 2, 1], [1, 2, 2, 1], 'VALID', name=scope + '_pool')
 		return x
