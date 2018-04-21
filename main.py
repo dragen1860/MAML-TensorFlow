@@ -61,7 +61,7 @@ def train2(model, saver, sess):
 			# DO NOT use train variable as we have train func already.
 			acc1s, acc2s = [], []
 			# sample 20 times to get more accurate statistics.
-			for _ in range(20):
+			for _ in range(50):
 				acc1, acc2 = sess.run([model.test_query_accs[0],
 				                   model.test_query_accs[-1]])
 				acc1s.append(acc1)
@@ -77,14 +77,13 @@ def test(model, sess):
 
 	# repeat test accuracy for 600 times
 	test_accs = []
-	feed_dict = {model.meta_lr: 0.0}
 	for i in range(600):
 		if i % 100 == 1:
 			print(i)
 		# extend return None!!!
 		ops = [model.test_support_acc]
 		ops.extend(model.test_query_accs)
-		result = sess.run(ops, feed_dict=feed_dict)
+		result = sess.run(ops)
 		test_accs.append(result)
 
 	# [600, K+1]
