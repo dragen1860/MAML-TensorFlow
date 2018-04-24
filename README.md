@@ -8,25 +8,18 @@ An elegant and efficient implementation for ICML2017 paper: [Model-Agnostic Meta
 
 # How-TO
 1. Download mini-Imagenet from [here](https://drive.google.com/open?id=1HkgrkAwukzEZA0TpO7010PkAOREb2Nuk) and download train/test/val/csv from [here](https://github.com/twitter/meta-learning-lstm/tree/master/data/miniImagenet), and extract them as :
-	
-	miniimagenet/
-	
-	├── images
-	
-		├── n0210891500001298.jpg  
-		
-		├── n0287152500001298.jpg 
-		
-		...
-		
-	├── test.csv
-	
-	├── val.csv
-	
-	└── train.csv
-	
+```shell
+	miniimagenet/	
+	├── images	
+		├── n0210891500001298.jpg  		
+		├── n0287152500001298.jpg 		
+		...		
+	├── test.csv	
+	├── val.csv	
+	└── train.csv	
 	└── proc_images.py
 	
+```
 
 then modify the `path` in `data_generator.py`:
 ```python
