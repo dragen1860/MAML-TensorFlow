@@ -6,6 +6,55 @@ An elegant and efficient implementation for ICML2017 paper: [Model-Agnostic Meta
 - faster and trivial improvements, eg. 0.335s per epoch comparing with 0.563s per epoch, saving up to 3.8 hours for total 60,000 training process
 
 
+# How-TO
+1. Download mini-Imagenet from [here](https://drive.google.com/open?id=1HkgrkAwukzEZA0TpO7010PkAOREb2Nuk) and download train/test/val/csv from [here](https://github.com/twitter/meta-learning-lstm/tree/master/data/miniImagenet), and extract them as :
+	miniimagenet/
+	├── images
+		├── n0210891500001298.jpg  
+		├── n0287152500001298.jpg 
+		...
+	├── test.csv
+	├── val.csv
+	└── train.csv
+	└── proc_images.py
+
+then modify the `path` in `data_generator.py`:
+```python
+		metatrain_folder = config.get('metatrain_folder', '/hdd1/liangqu/datasets/miniimagenet/train')
+		if True:
+			metaval_folder = config.get('metaval_folder', '/hdd1/liangqu/datasets/miniimagenet/test')
+		else:
+			metaval_folder = config.get('metaval_folder', '/hdd1/liangqu/datasets/miniimagenet/val')
+```	
+
+2. resize all raw images to 84x84 size by
+```shell
+python proc_images.py
+```
+
+3. run
+```shell
+python main.py
+```
+Since tf.summary is time-consuming, I turn it off by default.
+uncomment the 2 lines to turn it on:
+```python
+	# write graph to tensorboard
+	# tb = tf.summary.FileWriter(os.path.join('logs', 'mini'), sess.graph)
+
+	...
+	# summ_op
+	# tb.add_summary(result[1], iteration)
+```
+and then minitor training process by:
+```shell
+tensorboard --logdir logs
+```
+
+4. test
+```shell
+python main.py --test
+```
 
 
 
