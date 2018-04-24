@@ -142,7 +142,7 @@ class MAML:
 			# meta-train gradients, query_losses[-1] is the accumulated loss across over tasks.
 			gvs = optimizer.compute_gradients(self.query_losses[-1])
 			# meta-train grads clipping
-			gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
+			gvs = [(tf.clip_by_norm(grad, 10), var) for grad, var in gvs]
 			# update theta
 			self.meta_op = optimizer.apply_gradients(gvs)
 

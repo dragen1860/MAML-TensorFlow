@@ -1,18 +1,23 @@
 import os
 import numpy as np
-import pickle
+import argparse
 import random
 import tensorflow as tf
 
 from data_generator import DataGenerator
 from maml import MAML
 
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-t', '--test', action='store_true', default=False, help='set for test, otherwise train')
+args = parser.parse_args()
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
-def train2(model, saver, sess):
+def train(model, saver, sess):
 	"""
 
 	:param model:
@@ -21,8 +26,9 @@ def train2(model, saver, sess):
 	:return:
 	"""
 	# write graph to tensorboard
-	tb = tf.summary.FileWriter(os.path.join('logs', 'mini'), sess.graph)
-	prelosses, postlosses = [], []
+	# tb = tf.summary.FileWriter(os.path.join('logs', 'mini'), sess.graph)
+	prelosses, postlosses, preaccs, postaccs = [], [], [], []
+	best_acc = 0
 
 	# train for meta_iteartion epoches
 	for iteration in range(600000):
@@ -40,34 +46,40 @@ def train2(model, saver, sess):
 
 		# summary
 		if iteration % 200 == 0:
-			# query_acc[0]
-			prelosses.append(result[-2])
 			# summ_op
-			tb.add_summary(result[1], iteration)
+			# tb.add_summary(result[1], iteration)
+			# query_losses[0]
+			prelosses.append(result[2])
+			# query_losses[-1]
+			postlosses.append(result[3])
+			# query_accs[0]
+			preaccs.append(result[4])
 			# query_accs[-1]
-			postlosses.append(result[-1])
+			postaccs.append(result[5])
 
-			print('pre & post query loss:', iteration, np.mean(prelosses), np.mean(postlosses))
-			prelosses, postlosses = [], []
-
-		# checkpoint
-		if iteration % 5000 == 0:
-			saver.save(sess, os.path.join('ckpt', 'mini.mdl'))
-			print('saved ckpt.')
+			print(iteration, '\tloss:', np.mean(prelosses), '=>', np.mean(postlosses),
+			      '\t\tacc:', np.mean(preaccs), '=>', np.mean(postaccs))
+			prelosses, postlosses, preaccs, postaccs = [], [], [], []
 
 		# evaluation
-		if iteration % 1000 == 0:
+		if iteration % 2000 == 0:
 			# DO NOT write as a = b = [], in that case a=b
 			# DO NOT use train variable as we have train func already.
 			acc1s, acc2s = [], []
 			# sample 20 times to get more accurate statistics.
-			for _ in range(50):
+			for _ in range(200):
 				acc1, acc2 = sess.run([model.test_query_accs[0],
-				                   model.test_query_accs[-1]])
+				                        model.test_query_accs[-1]])
 				acc1s.append(acc1)
 				acc2s.append(acc2)
 
-			print('Validation results: ', np.mean(acc1s), np.mean(acc2s))
+			acc = np.mean(acc2s)
+			print('>>>>\t\tValidation accs: ', np.mean(acc1s), acc, 'best:', best_acc, '\t\t<<<<')
+
+			if acc - best_acc > 0.05 or acc > 0.4:
+				saver.save(sess, os.path.join('ckpt', 'mini.mdl'))
+				best_acc = acc
+				print('saved into ckpt:', acc)
 
 
 def test(model, sess):
@@ -101,7 +113,7 @@ def test(model, sess):
 
 
 def main():
-	training = True
+	training = not args.test
 	kshot = 1
 	kquery = 15
 	nway = 5
@@ -145,7 +157,7 @@ def main():
 		model.build(support_x, support_y, query_x, query_y, K, meta_batchsz, mode='train')
 		model.build(support_x_test, support_y_test, query_x_test, query_y_test, K, meta_batchsz, mode='eval')
 	else:
-		model.build(support_x_test, support_y_test, query_x_test, query_y_test, K, meta_batchsz, mode='test')
+		model.build(support_x_test, support_y_test, query_x_test, query_y_test, K + 5, meta_batchsz, mode='test')
 	model.summ_op = tf.summary.merge_all()
 
 	all_vars = filter(lambda x: 'meta_optim' not in x.name, tf.trainable_variables())
@@ -158,7 +170,7 @@ def main():
 	sess = tf.InteractiveSession(config=config)
 	# tf.global_variables() to save moving_mean and moving variance of batch norm
 	# tf.trainable_variables()  NOT include moving_mean and moving_variance.
-	saver = tf.train.Saver(tf.global_variables(), max_to_keep=10)
+	saver = tf.train.Saver(tf.global_variables(), max_to_keep=5)
 
 	# initialize, under interative session
 	tf.global_variables_initializer().run()
@@ -172,7 +184,7 @@ def main():
 
 
 	if training:
-		train2(model, saver, sess)
+		train(model, saver, sess)
 	else:
 		test(model, sess)
 
