@@ -1,13 +1,14 @@
 # MAML-TensorFlow
 An elegant and efficient implementation for ICML2017 paper: [Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks](https://arxiv.org/abs/1703.03400)
 
-- adopted from cbfin's official implementation with equavalent performance on mini-imagenet
+- adopted from cbfin's official implementation with equivalent performance on mini-imagenet
 - clean, tiny code style and very easy-to-follow from comments almost every lines
-- faster and trivial improvements, eg. 0.335s per epoch comparing with 0.563s per epoch, saving up to 3.8 hours for total 60,000 training process
+- faster and trivial improvements, eg. 0.335s per epoch comparing with 0.563s per epoch, saving up to **3.8 hours** for total 60,000 training process
 
 
 # How-TO
 1. Download mini-Imagenet from [here](https://drive.google.com/open?id=1HkgrkAwukzEZA0TpO7010PkAOREb2Nuk) and download train/test/val/csv from [here](https://github.com/twitter/meta-learning-lstm/tree/master/data/miniImagenet), and extract them as :
+	
 	miniimagenet/
 	├── images
 		├── n0210891500001298.jpg  
