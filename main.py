@@ -122,13 +122,13 @@ def main():
 
 
 	# kshot + kquery images per category, nway categories, meta_batchsz tasks.
-	db = DataGenerator( kshot +  kquery,  meta_batchsz, nway)
+	db = DataGenerator(nway, kshot, kquery, meta_batchsz, 200000)
 
 	if  training:  # only construct training model if needed
 		# get the tensor
 		# image_tensor: [4, 80, 84*84*3]
 		# label_tensor: [4, 80, 5]
-		image_tensor, label_tensor = db.make_data_tensor(train=True)
+		image_tensor, label_tensor = db.make_data_tensor(training=True)
 
 		# NOTICE: the image order in 80 images should like this now:
 		# [label2, label1, label3, label0, label4, and then repeat by 15 times, namely one task]
@@ -142,7 +142,7 @@ def main():
 		query_y = tf.slice(label_tensor, [0,  nway *  kshot, 0], [-1, -1, -1], name='query_y')
 
 	# construct test tensors.
-	image_tensor, label_tensor = db.make_data_tensor(train=False)
+	image_tensor, label_tensor = db.make_data_tensor(training=False)
 	support_x_test = tf.slice(image_tensor, [0, 0, 0], [-1,  nway *  kshot, -1], name='support_x_test')
 	query_x_test = tf.slice(image_tensor, [0,  nway *  kshot, 0], [-1, -1, -1],  name='query_x_test')
 	support_y_test = tf.slice(label_tensor, [0, 0, 0], [-1,  nway *  kshot, -1],  name='support_y_test')

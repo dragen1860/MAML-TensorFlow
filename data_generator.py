@@ -1,11 +1,21 @@
 import numpy as np
-import os
+import os, sys
 import random
 import tensorflow as tf
+import tqdm
+import pickle
 
-from utils import get_images
-
-
+def get_images(paths, labels, nb_samples=None, shuffle=True):
+	if nb_samples is not None:
+		sampler = lambda x: random.sample(x, nb_samples)
+	else:
+		sampler = lambda x: x
+	images = [(i, os.path.join(path, image)) \
+	          for i, path in zip(labels, paths) \
+	          for image in sampler(os.listdir(path))]
+	if shuffle:
+		random.shuffle(images)
+	return images
 
 class DataGenerator:
 	"""
@@ -13,105 +23,115 @@ class DataGenerator:
 	A "class" is considered a class of omniglot digits or a particular sinusoid function.
 	"""
 
-	def __init__(self, num_samples_per_class, batch_size, nway, config={}):
+	def __init__(self, nway, kshot, kquery, meta_batchsz, total_batch_num = 200000):
 		"""
-		Args:
-			num_samples_per_class: num samples to generate per class in one batch
-			batch_size: size of meta batch size (e.g. number of functions)
+
+		:param nway:
+		:param kshot:
+		:param kquery:
+		:param meta_batchsz:
 		"""
-		self.batch_size = batch_size
-		self.num_samples_per_class = num_samples_per_class
-		self.num_classes = 1  # by default 1 (only relevant for classification problems)
+		self.meta_batchsz = meta_batchsz
+		# number of images to sample per class
+		self.nimg = kshot + kquery
+		self.nway = nway
+		self.imgsz = (84, 84)
+		self.total_batch_num = total_batch_num
+		self.dim_input = np.prod(self.imgsz) * 3 # 21168
+		self.dim_output = nway
 
-		self.num_classes = config.get('num_classes', nway)
-		self.img_size = config.get('img_size', (84, 84))
-		self.dim_input = np.prod(self.img_size) * 3 # 21168
-		self.dim_output = self.num_classes
-		metatrain_folder = config.get('metatrain_folder', '/hdd1/liangqu/datasets/miniimagenet/train')
-		if True:
-			metaval_folder = config.get('metaval_folder', '/hdd1/liangqu/datasets/miniimagenet/test')
-		else:
-			metaval_folder = config.get('metaval_folder', '/hdd1/liangqu/datasets/miniimagenet/val')
+		metatrain_folder = '/hdd1/liangqu/datasets/miniimagenet/train'
+		metaval_folder = '/hdd1/liangqu/datasets/miniimagenet/test'
 
-		metatrain_folders = [os.path.join(metatrain_folder, label) \
+		self.metatrain_folders = [os.path.join(metatrain_folder, label) \
 		                     for label in os.listdir(metatrain_folder) \
 		                     if os.path.isdir(os.path.join(metatrain_folder, label)) \
 		                     ]
-		metaval_folders = [os.path.join(metaval_folder, label) \
+		self.metaval_folders = [os.path.join(metaval_folder, label) \
 		                   for label in os.listdir(metaval_folder) \
 		                   if os.path.isdir(os.path.join(metaval_folder, label)) \
 		                   ]
-		self.metatrain_character_folders = metatrain_folders
-		self.metaval_character_folders = metaval_folders
-		self.rotations = config.get('rotations', [0])
+		self.rotations = [0]
 
 
-		print('metatrain_folder', metatrain_folders[:5])
-		print('metaval_folders', metaval_folders[:5])
+		print('metatrain_folder:', self.metatrain_folders[:2])
+		print('metaval_folders:', self.metaval_folders[:2])
 
 
-	def make_data_tensor(self, train=True):
-		if train:
-			folders = self.metatrain_character_folders
-			# number of tasks, not number of meta-iterations. (divide by metabatch size to measure)
-			num_total_batches = 200000
+	def make_data_tensor(self, training=True):
+		"""
+
+		:param training:
+		:return:
+		"""
+		if training:
+			folders = self.metatrain_folders
+			num_total_batches = self.total_batch_num
 		else:
-			folders = self.metaval_character_folders
+			folders = self.metaval_folders
 			num_total_batches = 600
 
-		# make list of files
-		print('Generating filenames')
-		# 16 in one class, 16*5 in one task
-		# [task1_0_img0, task1_0_img15, task1_1_img0,]
-		all_filenames = []
-		for _ in range(num_total_batches): # 200000
-			# from image folder sample 5 class randomly
-			sampled_character_folders = random.sample(folders, self.num_classes)
-			random.shuffle(sampled_character_folders)
-			# sample 16 images from selected folders, and each with label 0-4, (0/1..., path)
-			# len: 5 * 16
-			labels_and_images = get_images(sampled_character_folders, range(self.num_classes),
-			                               nb_samples=self.num_samples_per_class, shuffle=False)
 
-			# make sure the above isn't randomized order
-			labels = [li[0] for li in labels_and_images]
-			filenames = [li[1] for li in labels_and_images]
-			all_filenames.extend(filenames)
+		if training and os.path.exists('filelist.pkl'):
+
+			labels = np.arange(self.nway).repeat(self.nimg).tolist()
+			with open('filelist.pkl', 'rb') as f:
+				all_filenames = pickle.load(f)
+				print('load episodes from file, len:', len(all_filenames))
+
+		else: # test or not existed.
+
+			# 16 in one class, 16*5 in one task
+			# [task1_0_img0, task1_0_img15, task1_1_img0,]
+			all_filenames = []
+			for _ in tqdm.tqdm(range(num_total_batches), 'generating episodes'): # 200000
+				# from image folder sample 5 class randomly
+				sampled_folders = random.sample(folders, self.nway)
+				random.shuffle(sampled_folders)
+				# sample 16 images from selected folders, and each with label 0-4, (0/1..., path), orderly, no shuffle!
+				# len: 5 * 16
+				labels_and_images = get_images(sampled_folders, range(self.nway), nb_samples=self.nimg, shuffle=False)
+
+				# make sure the above isn't randomized order
+				labels = [li[0] for li in labels_and_images]
+				filenames = [li[1] for li in labels_and_images]
+				all_filenames.extend(filenames)
+
+			if training: # only save for training.
+				with open('filelist.pkl', 'wb') as f:
+					pickle.dump(all_filenames,f)
+					print('save all file list to filelist.pkl')
 
 		# make queue for tensorflow to read from
-		print('Generating image processing ops')
+		print('creating pipeline ops')
 		filename_queue = tf.train.string_input_producer(tf.convert_to_tensor(all_filenames), shuffle=False)
 		image_reader = tf.WholeFileReader()
 		_, image_file = image_reader.read(filename_queue)
 
-
 		image = tf.image.decode_jpeg(image_file, channels=3)
 		# tensorflow format: N*H*W*C
-		image.set_shape((self.img_size[0], self.img_size[1], 3))
+		image.set_shape((self.imgsz[0], self.imgsz[1], 3))
 		# reshape(image, [84*84*3])
 		image = tf.reshape(image, [self.dim_input])
 		# convert to range(0,1)
 		image = tf.cast(image, tf.float32) / 255.0
 
-
-		num_preprocess_threads = 1  # TODO - enable this to be set to >1
-		min_queue_examples = 256
-		examples_per_batch = self.num_classes * self.num_samples_per_class # 5*16
+		examples_per_batch = self.nway * self.nimg   # 5*16
 		# batch here means batch of meta-learning, including 4 tasks = 4*80
-		batch_image_size = self.batch_size * examples_per_batch # 4* 80
+		batch_image_size = self.meta_batchsz * examples_per_batch # 4* 80
 
-		print('Batching images')
+		print('batching images')
 		images = tf.train.batch(
 			[image],
 			batch_size=batch_image_size, # 4*80
-			num_threads=num_preprocess_threads, # 1
-			capacity=min_queue_examples + 3 * batch_image_size,
+			num_threads= self.meta_batchsz,
+			capacity=   256 + 3 * batch_image_size, # 256 + 3* 4*80
 		)
 
 		all_image_batches, all_label_batches = [], []
-		print('Manipulating image data to be right shape')
+		print('manipulating images to be right order')
 		# images contains current batch, namely 4 task, 4* 80
-		for i in range(self.batch_size): # 4
+		for i in range(self.meta_batchsz): # 4
 			# current task, 80 images
 			image_batch = images[i * examples_per_batch:(i + 1) * examples_per_batch]
 
@@ -119,12 +139,12 @@ class DataGenerator:
 			label_batch = tf.convert_to_tensor(labels)
 			new_list, new_label_list = [], []
 			# for each image from 0 to 15 in all 5 class
-			for k in range(self.num_samples_per_class): # 16
-				class_idxs = tf.range(0, self.num_classes) # 0-4
+			for k in range(self.nimg): # 16
+				class_idxs = tf.range(0, self.nway) # 0-4
 				class_idxs = tf.random_shuffle(class_idxs)
 				# it will cope with 5 images parallelly
 				#    [0, 16, 32, 48, 64] or [1, 17, 33, 49, 65]
-				true_idxs = class_idxs * self.num_samples_per_class + k
+				true_idxs = class_idxs * self.nimg + k
 				new_list.append(tf.gather(image_batch, true_idxs))
 
 				new_label_list.append(tf.gather(label_batch, true_idxs))
@@ -141,7 +161,7 @@ class DataGenerator:
 		# [4, 80]
 		all_label_batches = tf.stack(all_label_batches)
 		# [4, 80, 5]
-		all_label_batches = tf.one_hot(all_label_batches, self.num_classes)
+		all_label_batches = tf.one_hot(all_label_batches, self.nway)
 
 		print('image_b:', all_image_batches)
 		print('label_onehot_b:', all_label_batches)

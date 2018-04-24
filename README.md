@@ -35,7 +35,7 @@ then modify the `path` in `data_generator.py`:
 python proc_images.py
 ```
 
-3. run
+3. train
 ```shell
 python main.py
 ```
@@ -59,6 +59,6 @@ tensorboard --logdir logs
 python main.py --test
 ```
 
-
+> As MAML need generate 200,000 train/eval episodes before training, which usually takes up to 6~8 minutes, I use an cache file `filelist.pkl` to dump all these episodes for the first time and then next time the program will load from the cached file. It only takes several seconds to load from cached files.
 
 
