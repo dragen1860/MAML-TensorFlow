@@ -60,5 +60,6 @@ python main.py --test
 ```
 
 As MAML need generate 200,000 train/eval episodes before training, which usually takes up to 6~8 minutes, I use an cache file `filelist.pkl` to dump all these episodes for the first time and then next time the program will load from the cached file. It only takes several seconds to load from cached files.
-generating episodes: 100%|█████████████████████████████████████████████████████| 200000/200000 [04:38<00:00, 717.27it/s]
+
+generating episodes: 100%|█████████████████████████████████████████| 200000/200000 [04:38<00:00, 717.27it/s]
 
